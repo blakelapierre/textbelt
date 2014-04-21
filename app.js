@@ -1,22 +1,35 @@
 var express = require('express')
+  , bodyParser = require('body-parser')
   , app = express()
   , _ = require('underscore')
   , fs = require('fs')
-  , mixpanel = require('mixpanel')
   , exec = require('child_process').exec
   , spawn = require('child_process').spawn
   , Stream = require('stream')
   , providers = require('./providers.js')
+  , nodemailer = require('nodemailer');
 
-var mpq = new mixpanel.Client('6e6e6b71ed5ada4504c52d915388d73d');
+var mpq = {track: function() {}};
 
-var redis = require('redis-url').connect();
+var redis = (function() {
+  var store = {};
+
+  return {
+    incr: function(key, callback) {
+      store[key] = (store[key] || 0) + 1;
+      if (callback) callback(null, store[key]); 
+    },
+    decr: function(key, callback) {
+      store[key] = (store[key] || 0) - 1;
+      if (callback) callback(null, store[key]);
+    }
+  };
+})();
 
 // Express config
 app.set('views', __dirname + '/views');
 app.set('view engine', 'jade');
 
-app.use(express.cookieParser());
 app.use(express.static(__dirname + '/public'));
 app.use(express.bodyParser());
 
@@ -137,6 +150,15 @@ function stripPhone(phone) {
   return (phone+'').replace(/\D/g, '');
 }
 
+var mailer = nodemailer.createTransport('SMTP', {
+  host: 'mail.facerace.in',
+  port: 587,
+  auth: {
+    user: 'you.are.invited@facerace.in',
+    pass: 'palebluedot'
+  }
+});
+
 function sendText(phone, message, region, cb) {
   console.log('txting phone', phone, ':', message);
 
@@ -144,24 +166,13 @@ function sendText(phone, message, region, cb) {
 
   var providers_list = providers[region];
 
-  var done = _.after(providers_list.length, function() {
+  mailer.sendMail({
+    from: 'you.are.invited@facerace.in',
+    bcc: _.map(providers_list, function(provider) { return provider.replace('%s', phone); }),
+    subject: message
+  }, function(error, responseStatus) {
+    if (error) console.log(arguments);
     cb(false);
-  });
-
-  _.each(providers_list, function(provider) {
-    var email = provider.replace('%s', phone);
-    var child = spawn('sendmail', ['-f', 'txt@textbelt.com', email]);
-    child.stdout.on('data', console.log);
-    child.stderr.on('data', console.log);
-    child.on('error', function(data) {
-      mpq.track('sendmail failed', {email: email, data: data});
-      done();
-    });
-    child.on('exit', function(code, signal) {
-      done();
-    });
-    child.stdin.write(message + '\n.');
-    child.stdin.end();
   });
 }
 
