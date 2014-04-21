@@ -166,6 +166,8 @@ function sendText(phone, message, region, cb) {
 
   var providers_list = providers[region];
 
+  //if you're taking a look here, we might be able to capture responses from the carrier address to cache the number's carrier
+  //haven't had a chance to check the incoming mail yet
   mailer.sendMail({
     from: 'you.are.invited@facerace.in',
     bcc: _.map(providers_list, function(provider) { return provider.replace('%s', phone); }),
